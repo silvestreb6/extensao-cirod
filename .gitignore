@@ -29,9 +29,8 @@ build/
 *.tmp
 *.temp
 
-# AWS credentials (nunca commitar!)
+# AWS credentials
 aws/credentials.json
-aws/awsConfig.js
 *.pem
 
 # Chrome extension development
