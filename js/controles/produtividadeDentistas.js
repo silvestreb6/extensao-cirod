@@ -2,57 +2,40 @@
  * produtividadeDentistas.js - Assistente CIROD
  * Página de controle de produtividade dos dentistas
  * Com 14 abas: Geral + 13 unidades CIROD
+ *
+ * Chart.js é carregado automaticamente via manifest.json como content script
+ * (mesmo padrão do Auto-X), garantindo disponibilidade global de window.Chart
  */
 
 (function () {
-  // Carregar Chart.js dinamicamente - chamado apenas quando necessário
-  function loadChartJS() {
+  // Verificar se Chart.js está disponível (carregado via manifest.json)
+  function ensureChartJS() {
     return new Promise((resolve) => {
       if (window.Chart) {
-        resolve();
+        console.log('[CIROD] Chart.js disponível');
+        resolve(true);
         return;
       }
-      // Verificar se o contexto da extensão ainda é válido
-      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
-        console.warn('[CIROD] Contexto da extensão invalidado, Chart.js não será carregado');
-        resolve();
-        return;
-      }
-      try {
-        const chartUrl = chrome.runtime.getURL("utils/chart-min.js");
-        const script = document.createElement("script");
-        script.src = chartUrl;
-        script.onerror = () => {
-          console.warn('[CIROD] Erro ao carregar Chart.js');
-          resolve();
-        };
-        script.onload = () => {
-          if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.id) {
-            resolve();
-            return;
-          }
-          try {
-            const plugin = document.createElement("script");
-            plugin.src = chrome.runtime.getURL("utils/chart-minPlugIn.js");
-            plugin.onload = resolve;
-            plugin.onerror = resolve;
-            document.head.appendChild(plugin);
-          } catch (e) {
-            console.warn('[CIROD] Erro ao carregar plugin Chart.js:', e);
-            resolve();
-          }
-        };
-        document.head.appendChild(script);
-      } catch (e) {
-        console.warn('[CIROD] Erro ao iniciar carregamento Chart.js:', e);
-        resolve();
-      }
+
+      // Chart.js deveria estar carregado via manifest - aguardar um pouco
+      console.warn('[CIROD] Chart.js não encontrado, aguardando...');
+      let attempts = 0;
+      const maxAttempts = 10;
+
+      const checkInterval = setInterval(() => {
+        attempts++;
+        if (window.Chart) {
+          clearInterval(checkInterval);
+          console.log('[CIROD] Chart.js encontrado após ' + attempts + ' tentativas');
+          resolve(true);
+        } else if (attempts >= maxAttempts) {
+          clearInterval(checkInterval);
+          console.error('[CIROD] Chart.js não disponível após ' + maxAttempts + ' tentativas. Verifique o manifest.json.');
+          resolve(false);
+        }
+      }, 100);
     });
   }
-
-  // NÃO carregar Chart.js na inicialização - será carregado sob demanda
-  const ASC_ICON_URL = "https://img.icons8.com/?size=100&id=26124&format=png&color=000000";
-  const DESC_ICON_URL = "https://img.icons8.com/?size=100&id=26139&format=png&color=000000";
 
   // Usar CIROD_UNITS do awsConfig.js (carregado antes via manifest.json)
   // Ordenação específica para exibição nas abas:
@@ -222,8 +205,8 @@
    * IMPORTANTE: Esta função só é chamada após o usuário digitar a senha correta
    */
   function loadDentistProductivityModule() {
-    // Carregar Chart.js sob demanda (apenas quando o módulo é acessado)
-    loadChartJS();
+    // Chart.js já está carregado via manifest.json - apenas verificar
+    ensureChartJS();
 
     let container = document.getElementById("dentistProductivityModule");
     if (!container) {
@@ -238,93 +221,44 @@
 
     container.innerHTML = "";
 
-    // Barra de ações
-    const actionBar = document.createElement("div");
-    actionBar.style.display = "flex";
-    actionBar.style.gap = "10px";
-    actionBar.style.marginBottom = "10px";
-    actionBar.style.alignItems = "center";
+    // Cabeçalho com título e info de última atualização
+    const headerWrapper = document.createElement("div");
+    headerWrapper.style.display = "flex";
+    headerWrapper.style.justifyContent = "space-between";
+    headerWrapper.style.alignItems = "center";
+    headerWrapper.style.marginBottom = "20px";
 
-    const closeButton = document.createElement("button");
-    closeButton.id = "closeDentistProductivityButton";
-    closeButton.textContent = "Voltar";
-    closeButton.className = "btn btn-secondary";
-    closeButton.addEventListener("click", closeDentistProductivityModule);
-    actionBar.appendChild(closeButton);
 
-    const recalculateButton = document.createElement("button");
-    recalculateButton.textContent = "Recalcular KPIs";
-    recalculateButton.className = "btn btn-warning";
-    recalculateButton.title = "Recalcula todos os KPIs baseado nas requisições salvas";
-    recalculateButton.addEventListener("click", async function() {
-      if (!confirm("Deseja recalcular todos os KPIs?\nIsso pode demorar alguns segundos.")) {
-        return;
-      }
-      recalculateButton.disabled = true;
-      recalculateButton.textContent = "Recalculando...";
-      try {
-        const response = await sendServiceMessage({ command: "recalculateAllKPIs" });
-        if (response.status === "success") {
-          alert(`KPIs recalculados!\n${response.message}`);
-          // Recarregar dados
-          const spinner = document.createElement("div");
-          spinner.id = "dentistsProductivitySpinner";
-          spinner.textContent = "Recarregando dados...";
-          spinner.style.padding = "20px";
-          spinner.style.textAlign = "center";
-          document.getElementById("dentistProductivityTableContainer").innerHTML = "";
-          document.getElementById("dentistProductivityTableContainer").appendChild(spinner);
+    // Container para info de atualização e botão de recálculo
+    const updateContainer = document.createElement("div");
+    updateContainer.style.display = "flex";
+    updateContainer.style.alignItems = "center";
+    updateContainer.style.gap = "12px";
 
-          const dentists = await queryDentistsProductivity();
-          spinner.remove();
-          productivityDentists = dentists;
-          currentPage = 1;
-          renderDentistTablePage(document.getElementById("dentistProductivityTableContainer"));
-        } else {
-          alert("Erro ao recalcular KPIs: " + (response.message || "Erro desconhecido"));
-        }
-      } catch (error) {
-        alert("Erro ao recalcular KPIs: " + error.message);
-      } finally {
-        recalculateButton.disabled = false;
-        recalculateButton.textContent = "Recalcular KPIs";
-      }
-    });
-    actionBar.appendChild(recalculateButton);
+    // Info de última atualização (será preenchida após verificar)
+    const lastUpdateInfo = document.createElement("div");
+    lastUpdateInfo.id = "kpiLastUpdateInfo";
+    lastUpdateInfo.style.fontSize = "12px";
+    lastUpdateInfo.style.color = "#666";
+    lastUpdateInfo.style.textAlign = "right";
+    lastUpdateInfo.innerHTML = '<i class="fa fa-clock"></i> Verificando última atualização...';
+    updateContainer.appendChild(lastUpdateInfo);
 
-    // Botão de diagnóstico
-    const diagnosticButton = document.createElement("button");
-    diagnosticButton.textContent = "Diagnóstico";
-    diagnosticButton.className = "btn btn-info";
-    diagnosticButton.title = "Mostra informações sobre dentistas e requisições no banco";
-    diagnosticButton.addEventListener("click", async function() {
-      diagnosticButton.disabled = true;
-      diagnosticButton.textContent = "Analisando...";
-      try {
-        const response = await sendServiceMessage({ command: "diagnosticKPIs" });
-        if (response.status === "success") {
-          const d = response.data;
-          showDiagnosticModal(d);
-          console.log('[CIROD Diagnóstico]', d);
-        } else {
-          alert("Erro no diagnóstico: " + (response.message || "Erro desconhecido"));
-        }
-      } catch (error) {
-        alert("Erro no diagnóstico: " + error.message);
-      } finally {
-        diagnosticButton.disabled = false;
-        diagnosticButton.textContent = "Diagnóstico";
-      }
-    });
-    actionBar.appendChild(diagnosticButton);
+    // Botão de recálculo manual
+    const recalcButton = document.createElement("button");
+    recalcButton.id = "kpiRecalcButton";
+    recalcButton.className = "btn btn-sm btn-outline-secondary";
+    recalcButton.innerHTML = '<i class="fa fa-refresh"></i>';
+    recalcButton.title = "Recalcular KPIs manualmente";
+    recalcButton.style.padding = "4px 8px";
+    recalcButton.style.fontSize = "12px";
+    recalcButton.style.display = "none"; // Escondido até carregar
+    recalcButton.addEventListener("click", handleManualKPIRecalc);
+    updateContainer.appendChild(recalcButton);
 
-    container.appendChild(actionBar);
+    headerWrapper.appendChild(updateContainer);
 
-    const header = document.createElement("h2");
-    header.textContent = "Produtividade dos Dentistas - CIROD";
-    header.style.color = "#333";
-    header.style.marginBottom = "20px";
-    container.appendChild(header);
+    container.appendChild(headerWrapper);
 
     createTabs(container);
 
@@ -332,43 +266,329 @@
     tableContainer.id = "dentistProductivityTableContainer";
     container.appendChild(tableContainer);
 
-    const spinner = document.createElement("div");
-    spinner.id = "dentistsProductivitySpinner";
-    spinner.textContent = "Carregando produtividade...";
-    spinner.style.padding = "20px";
-    spinner.style.textAlign = "center";
-    container.appendChild(spinner);
+    // Spinner de carregamento com UX melhorada
+    const loadingOverlay = document.createElement("div");
+    loadingOverlay.id = "kpiLoadingOverlay";
+    loadingOverlay.style.cssText = `
+      padding: 40px 20px;
+      text-align: center;
+      background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
+      border-radius: 8px;
+      margin: 20px 0;
+    `;
 
-    queryDentistsProductivity()
-      .then((dentists) => {
-        spinner.remove();
-        console.log("[CIROD Produtividade] Dados carregados:", dentists.length, "dentistas");
+    const spinnerIcon = document.createElement("div");
+    spinnerIcon.innerHTML = '<i class="fa fa-spinner fa-spin" style="font-size: 32px; color: #007bff; margin-bottom: 15px;"></i>';
+    loadingOverlay.appendChild(spinnerIcon);
 
-        // Debug: Verificar estrutura de KPIs dos primeiros dentistas
-        if (dentists.length > 0) {
-          console.log('[CIROD Debug] Estrutura do primeiro dentista:', {
-            dentist: dentists[0],
-            dentist_id: dentists[0].dentist_id,
-            dentist_name: dentists[0].dentist_name,
-            hasKPIs: !!dentists[0].KPIs,
-            KPIs: dentists[0].KPIs
-          });
+    const loadingText = document.createElement("div");
+    loadingText.id = "kpiLoadingText";
+    loadingText.style.cssText = "font-size: 16px; color: #333; font-weight: 500;";
+    loadingText.textContent = "Carregando dados de produtividade...";
+    loadingOverlay.appendChild(loadingText);
+
+    const loadingSubtext = document.createElement("div");
+    loadingSubtext.id = "kpiLoadingSubtext";
+    loadingSubtext.style.cssText = "font-size: 12px; color: #666; margin-top: 8px;";
+    loadingSubtext.textContent = "Verificando última atualização dos KPIs...";
+    loadingOverlay.appendChild(loadingSubtext);
+
+    container.appendChild(loadingOverlay);
+
+    // Iniciar carregamento com verificação automática de recálculo
+    loadProductivityDataWithAutoRecalc(tableContainer, loadingOverlay, lastUpdateInfo);
+  }
+
+  /**
+   * Carrega dados de produtividade com verificação automática de recálculo diário
+   * Se os KPIs não foram calculados hoje, executa o recálculo em background
+   * Usa dados cacheados quando disponíveis para evitar discrepância com hora exibida
+   */
+  async function loadProductivityDataWithAutoRecalc(tableContainer, loadingOverlay, lastUpdateInfo) {
+    try {
+      // 1. Verificar se precisa recalcular KPIs
+      const loadingSubtext = document.getElementById("kpiLoadingSubtext");
+      const loadingText = document.getElementById("kpiLoadingText");
+
+      if (loadingSubtext) loadingSubtext.textContent = "Verificando última atualização dos KPIs...";
+
+      const configResponse = await sendServiceMessage({ command: "getKPIConfig" });
+      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+      let needsRecalc = true;
+      let lastRecalcDate = null;
+      let lastRecalcTime = null;
+      let cachedDentists = null;
+
+      if (configResponse.status === 'success' && configResponse.data) {
+        lastRecalcDate = configResponse.data.lastFullRecalculation;
+        lastRecalcTime = configResponse.data.lastRecalculationTime;
+        cachedDentists = configResponse.data.cachedDentists;
+
+        console.log('[CIROD] Config carregada:', {
+          lastRecalcDate,
+          lastRecalcTime,
+          today,
+          hasCachedDentists: !!cachedDentists,
+          cachedCount: cachedDentists?.length || 0
+        });
+
+        if (lastRecalcDate === today) {
+          needsRecalc = false;
+          console.log('[CIROD] KPIs já calculados hoje:', lastRecalcDate, 'às', lastRecalcTime);
+        } else {
+          console.log('[CIROD] KPIs desatualizados. Último cálculo:', lastRecalcDate || 'nunca');
+        }
+      } else {
+        console.log('[CIROD] Configuração de KPIs não encontrada, primeiro acesso');
+      }
+
+      // 2. Se precisa recalcular, fazer em background
+      if (needsRecalc) {
+        if (loadingText) loadingText.textContent = "Atualizando KPIs...";
+        if (loadingSubtext) {
+          loadingSubtext.textContent = 'Primeira atualização do dia, recalculando dados...';
         }
 
-        // Contar dentistas com KPIs
-        const withKPIs = dentists.filter(d => d.KPIs && Object.keys(d.KPIs.periodKPIs || {}).length > 0);
-        console.log(`[CIROD Produtividade] Dentistas com KPIs: ${withKPIs.length} de ${dentists.length}`);
+        console.log('[CIROD] Iniciando recálculo automático de KPIs...');
+        const recalcResponse = await sendServiceMessage({ command: "recalculateAllKPIs" });
 
+        if (recalcResponse.status === 'success') {
+          console.log('[CIROD] Recálculo concluído:', recalcResponse.message);
+
+          // Atualizar data do último cálculo
+          const now = new Date();
+          lastRecalcDate = today;
+          lastRecalcTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+          // Buscar dados atualizados e cachear
+          if (loadingText) loadingText.textContent = "Carregando dados dos dentistas...";
+          if (loadingSubtext) loadingSubtext.textContent = "Buscando informações de produtividade...";
+
+          const dentists = await queryDentistsProductivity();
+
+          // Preparar dados para cache (apenas campos essenciais)
+          const dentistsForCache = dentists.map(d => ({
+            dentist_id: d.dentist_id,
+            dentist_name: d.dentist_name,
+            dentist_cro: d.dentist_cro,
+            dentist_email: d.dentist_email,
+            mobile_phone: d.mobile_phone,
+            commercial_phone: d.commercial_phone,
+            dental_clinics: d.dental_clinics,
+            KPIs: d.KPIs
+          }));
+
+          // Salvar config com dados cacheados
+          await sendServiceMessage({
+            command: "setKPIConfig",
+            data: {
+              lastFullRecalculation: today,
+              lastRecalculationTime: lastRecalcTime,
+              cachedDentists: dentistsForCache
+            }
+          });
+
+          console.log('[CIROD] Config salva após recálculo automático:', dentistsForCache.length, 'dentistas cacheados');
+
+          // Usar os dados recém-buscados
+          cachedDentists = dentists;
+        } else {
+          console.error('[CIROD] Erro no recálculo:', recalcResponse.message);
+        }
+      }
+
+      // 3. Atualizar info de última atualização
+      if (lastUpdateInfo) {
+        if (lastRecalcDate && lastRecalcTime) {
+          const displayDate = formatDateBR(lastRecalcDate);
+          lastUpdateInfo.innerHTML = `<i class="fa fa-check-circle" style="color: #28a745;"></i> Última atualização: ${displayDate} às ${lastRecalcTime}`;
+        } else if (lastRecalcDate) {
+          const displayDate = formatDateBR(lastRecalcDate);
+          lastUpdateInfo.innerHTML = `<i class="fa fa-check-circle" style="color: #28a745;"></i> Última atualização: ${displayDate}`;
+        } else {
+          lastUpdateInfo.innerHTML = `<i class="fa fa-info-circle" style="color: #ffc107;"></i> Dados sendo carregados pela primeira vez`;
+        }
+      }
+
+      // 4. Carregar dados dos dentistas (usar cache se disponível)
+      let dentists;
+
+      if (cachedDentists && cachedDentists.length > 0) {
+        // Usar dados cacheados - garantem consistência com a hora exibida
+        console.log('[CIROD] Usando dados cacheados:', cachedDentists.length, 'dentistas');
+        dentists = cachedDentists;
+
+        if (loadingText) loadingText.textContent = "Carregando dados em cache...";
+        if (loadingSubtext) loadingSubtext.textContent = "Usando dados da última atualização...";
+      } else {
+        // Buscar do banco (fallback)
+        console.log('[CIROD] Sem cache disponível, buscando do banco...');
+        if (loadingText) loadingText.textContent = "Carregando dados dos dentistas...";
+        if (loadingSubtext) loadingSubtext.textContent = "Buscando informações de produtividade...";
+
+        dentists = await queryDentistsProductivity();
+      }
+
+      // Mostrar progresso de processamento
+      if (loadingSubtext && dentists.length > 0) {
+        loadingSubtext.textContent = `Analisando dentistas... (${dentists.length}/${dentists.length})`;
+      }
+
+      // Remover overlay de carregamento
+      if (loadingOverlay) loadingOverlay.remove();
+
+      console.log("[CIROD Produtividade] Dados carregados:", dentists.length, "dentistas");
+
+      // Debug: Verificar estrutura de KPIs dos primeiros dentistas
+      if (dentists.length > 0) {
+        console.log('[CIROD Debug] Estrutura do primeiro dentista:', {
+          dentist_id: dentists[0].dentist_id,
+          dentist_name: dentists[0].dentist_name,
+          hasKPIs: !!dentists[0].KPIs
+        });
+      }
+
+      // Contar dentistas com KPIs
+      const withKPIs = dentists.filter(d => d.KPIs && Object.keys(d.KPIs.periodKPIs || {}).length > 0);
+      console.log(`[CIROD Produtividade] Dentistas com KPIs: ${withKPIs.length} de ${dentists.length}`);
+
+      productivityDentists = dentists;
+      currentPage = 1;
+      currentSort = { column: "lastMonthRevenue", direction: "desc" };
+      currentMode = 0; // Geral
+      renderDentistTablePage(tableContainer);
+
+      // Mostrar botão de recálculo manual após carregamento bem-sucedido
+      const recalcButton = document.getElementById("kpiRecalcButton");
+      if (recalcButton) {
+        recalcButton.style.display = "";
+      }
+
+    } catch (err) {
+      console.error("[CIROD Produtividade] Erro:", err);
+
+      if (loadingOverlay) {
+        loadingOverlay.innerHTML = `
+          <div style="color: #dc3545; margin-bottom: 10px;">
+            <i class="fa fa-exclamation-triangle" style="font-size: 32px;"></i>
+          </div>
+          <div style="font-size: 16px; color: #333; font-weight: 500;">Erro ao carregar dados</div>
+          <div style="font-size: 12px; color: #666; margin-top: 8px;">${err.message || 'Erro desconhecido'}</div>
+          <button onclick="location.reload()" class="btn btn-sm btn-outline-primary" style="margin-top: 15px;">
+            <i class="fa fa-refresh"></i> Tentar novamente
+          </button>
+        `;
+      }
+
+      if (lastUpdateInfo) {
+        lastUpdateInfo.innerHTML = '<i class="fa fa-exclamation-circle" style="color: #dc3545;"></i> Erro ao verificar atualização';
+      }
+    }
+  }
+
+  /**
+   * Formata data no padrão brasileiro (DD/MM/YYYY)
+   */
+  function formatDateBR(dateStr) {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    return `${day}/${month}/${year}`;
+  }
+
+  /**
+   * Handler para recálculo manual de KPIs
+   * Permite ao usuário forçar um recálculo mesmo que já tenha sido feito hoje
+   */
+  async function handleManualKPIRecalc() {
+    const recalcButton = document.getElementById("kpiRecalcButton");
+    const lastUpdateInfo = document.getElementById("kpiLastUpdateInfo");
+    const tableContainer = document.getElementById("dentistProductivityTableContainer");
+
+    if (!recalcButton) return;
+
+    // Confirmar ação
+    if (!confirm("Deseja recalcular todos os KPIs?\nIsso pode demorar alguns segundos.")) {
+      return;
+    }
+
+    // Desabilitar botão e mostrar loading
+    recalcButton.disabled = true;
+    recalcButton.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+    recalcButton.title = "Recalculando...";
+
+    if (lastUpdateInfo) {
+      lastUpdateInfo.innerHTML = '<i class="fa fa-sync fa-spin" style="color: #007bff;"></i> Recalculando KPIs...';
+    }
+
+    try {
+      // Executar recálculo
+      const recalcResponse = await sendServiceMessage({ command: "recalculateAllKPIs" });
+
+      if (recalcResponse.status === 'success') {
+        // Atualizar data do último cálculo
+        const today = new Date().toISOString().split('T')[0];
+        const now = new Date();
+        const lastRecalcTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+        // Recarregar dados da tabela
+        if (tableContainer) {
+          tableContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;"><i class="fa fa-spinner fa-spin"></i> Recarregando dados...</div>';
+        }
+
+        const dentists = await queryDentistsProductivity();
         productivityDentists = dentists;
+
+        // Preparar dados para cache (apenas campos essenciais para reduzir tamanho)
+        const dentistsForCache = dentists.map(d => ({
+          dentist_id: d.dentist_id,
+          dentist_name: d.dentist_name,
+          dentist_cro: d.dentist_cro,
+          dentist_email: d.dentist_email,
+          mobile_phone: d.mobile_phone,
+          commercial_phone: d.commercial_phone,
+          dental_clinics: d.dental_clinics,
+          KPIs: d.KPIs
+        }));
+
+        // Salvar config com dados cacheados
+        const configSaveResponse = await sendServiceMessage({
+          command: "setKPIConfig",
+          data: {
+            lastFullRecalculation: today,
+            lastRecalculationTime: lastRecalcTime,
+            cachedDentists: dentistsForCache
+          }
+        });
+
+        console.log('[CIROD] Config salva após recálculo manual:', configSaveResponse.status, 'Data:', today, 'Hora:', lastRecalcTime, 'Dentistas:', dentistsForCache.length);
+
+        // Atualizar info
+        if (lastUpdateInfo) {
+          const displayDate = formatDateBR(today);
+          lastUpdateInfo.innerHTML = `<i class="fa fa-check-circle" style="color: #28a745;"></i> Última atualização: ${displayDate} às ${lastRecalcTime}`;
+        }
+
         currentPage = 1;
-        currentSort = { column: "lastMonthRevenue", direction: "desc" };
-        currentMode = 0; // Geral
         renderDentistTablePage(tableContainer);
-      })
-      .catch((err) => {
-        spinner.textContent = "Erro ao carregar dados de produtividade.";
-        console.error("[CIROD Produtividade] Erro:", err);
-      });
+
+        console.log('[CIROD] Recálculo manual de KPIs concluído:', recalcResponse.message);
+      } else {
+        throw new Error(recalcResponse.message || 'Erro desconhecido');
+      }
+    } catch (error) {
+      console.error('[CIROD] Erro no recálculo manual:', error);
+      alert("Erro ao recalcular KPIs: " + error.message);
+
+      if (lastUpdateInfo) {
+        lastUpdateInfo.innerHTML = '<i class="fa fa-exclamation-circle" style="color: #dc3545;"></i> Erro no recálculo';
+      }
+    } finally {
+      // Restaurar botão
+      recalcButton.disabled = false;
+      recalcButton.innerHTML = '<i class="fa fa-refresh"></i>';
+      recalcButton.title = "Recalcular KPIs manualmente";
+    }
   }
 
   /**
@@ -596,23 +816,45 @@
 
     headers.forEach((headerObj) => {
       const th = document.createElement("th");
-      th.textContent = headerObj.label;
       th.style.padding = "8px";
       th.style.border = `1px solid ${borderColor}`;
       th.style.position = "relative";
+      th.style.whiteSpace = "nowrap";
+
+      // Criar span para o texto
+      const textSpan = document.createElement("span");
+      textSpan.textContent = headerObj.label;
+      th.appendChild(textSpan);
 
       if (headerObj.sortable && headerObj.key) {
         th.style.cursor = "pointer";
 
-        // Ícone de ordenação
+        // Criar span para o ícone de ordenação
+        const iconSpan = document.createElement("span");
+        iconSpan.style.marginLeft = "6px";
+        iconSpan.style.fontSize = "10px";
+        iconSpan.style.opacity = currentSort.column === headerObj.key ? "1" : "0.4";
+
+        // Ícone baseado no estado de ordenação
         if (currentSort.column === headerObj.key) {
-          const icon = document.createElement("img");
-          icon.src = currentSort.direction === "asc" ? ASC_ICON_URL : DESC_ICON_URL;
-          icon.style.width = "12px";
-          icon.style.marginLeft = "5px";
-          icon.style.filter = "invert(1)";
-          th.appendChild(icon);
+          // Coluna ativa: mostrar direção atual
+          iconSpan.innerHTML = currentSort.direction === "asc"
+            ? '<i class="fa fa-sort-up"></i>'
+            : '<i class="fa fa-sort-down"></i>';
+        } else {
+          // Coluna inativa: mostrar ícone neutro indicando que é ordenável
+          iconSpan.innerHTML = '<i class="fa fa-sort"></i>';
         }
+
+        th.appendChild(iconSpan);
+
+        // Hover effect
+        th.addEventListener("mouseenter", () => {
+          th.style.backgroundColor = "rgba(0,0,0,0.05)";
+        });
+        th.addEventListener("mouseleave", () => {
+          th.style.backgroundColor = "";
+        });
 
         th.addEventListener("click", () => {
           if (currentSort.column === headerObj.key) {
@@ -660,18 +902,37 @@
       profileLink.addEventListener("mouseleave", () => { profileLink.style.color = "#666"; });
       tdName.appendChild(profileLink);
 
-      // Link para modal com gráfico
-      const nameLink = document.createElement("a");
-      nameLink.href = "#";
-      nameLink.textContent = dentist.dentist_name || "Sem nome";
-      nameLink.style.color = borderColor;
-      nameLink.style.textDecoration = "none";
-      nameLink.style.fontWeight = "500";
-      nameLink.addEventListener("click", (e) => {
+      // Ícone de gráfico para abrir modal com detalhes
+      const chartIcon = document.createElement("a");
+      chartIcon.href = "#";
+      chartIcon.title = "Ver gráfico de produtividade";
+      chartIcon.style.display = "inline-flex";
+      chartIcon.style.alignItems = "center";
+      chartIcon.style.textDecoration = "none";
+      chartIcon.style.cursor = "pointer";
+
+      const chartImg = document.createElement("img");
+      chartImg.src = chrome.runtime.getURL("images/grafico-icon.png");
+      chartImg.alt = "Gráfico";
+      chartImg.style.width = "16px";
+      chartImg.style.height = "16px";
+      chartImg.style.opacity = "0.6";
+      chartImg.style.transition = "opacity 0.2s";
+      chartIcon.appendChild(chartImg);
+
+      chartIcon.addEventListener("mouseenter", () => { chartImg.style.opacity = "1"; });
+      chartIcon.addEventListener("mouseleave", () => { chartImg.style.opacity = "0.6"; });
+      chartIcon.addEventListener("click", (e) => {
         e.preventDefault();
         showDentistModal(dentist);
       });
-      tdName.appendChild(nameLink);
+      tdName.appendChild(chartIcon);
+
+      // Nome do dentista (sem link para modal)
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = dentist.dentist_name || "Sem nome";
+      nameSpan.style.fontWeight = "500";
+      tdName.appendChild(nameSpan);
       row.appendChild(tdName);
 
       // Bairros
@@ -818,7 +1079,7 @@
   /**
    * Exibe modal com gráfico do dentista
    */
-  function showDentistModal(dentist) {
+  async function showDentistModal(dentist) {
     // Remove modal existente
     const existingModal = document.getElementById("dentistChartModal");
     if (existingModal) existingModal.remove();
@@ -867,17 +1128,19 @@
 
     // Formatar emails
     const emails = dentist.dentist_email;
-    const emailStr = Array.isArray(emails) ? emails.join(", ") : (emails || "N/A");
+    const emailStr = Array.isArray(emails) ? emails.join(", ") : (emails || "Dado não cadastrado");
 
     // Formatar telefones
-    const phones = [dentist.mobile_phone, dentist.commercial_phone].filter(p => p).join(" / ") || "N/A";
+    const phones = [dentist.mobile_phone, dentist.commercial_phone].filter(p => p).join(" / ") || "Dado não cadastrado";
+
+    // Formatar bairros
+    const bairros = getNeighborhoods(dentist).join(", ") || "Dado não cadastrado";
 
     info.innerHTML = `
-      <p><strong>ID:</strong> ${dentist.dentist_id || "N/A"} | <strong>CRO:</strong> ${dentist.dentist_cro || "N/A"}</p>
+      <p><strong>ID:</strong> ${dentist.dentist_id || "Dado não cadastrado"} | <strong>CRO:</strong> ${dentist.dentist_cro || "Dado não cadastrado"}</p>
       <p><strong>Email:</strong> ${emailStr}</p>
       <p><strong>Telefone:</strong> ${phones}</p>
-      <p><strong>Status:</strong> ${dentist.actual_partnership_status || "Não definido"}</p>
-      <p><strong>Bairros:</strong> ${getNeighborhoods(dentist).join(", ") || "N/A"}</p>
+      <p><strong>Bairros:</strong> ${bairros}</p>
     `;
     modalContent.appendChild(info);
 
@@ -897,8 +1160,13 @@
       if (e.target === modal) modal.remove();
     });
 
-    // Renderizar gráfico
-    renderDentistChart(canvas, dentist);
+    // Verificar se Chart.js está disponível antes de renderizar o gráfico
+    const chartAvailable = await ensureChartJS();
+    if (chartAvailable) {
+      renderDentistChart(canvas, dentist);
+    } else {
+      chartContainer.innerHTML = "<p style='color: #cc0000;'>Erro: Chart.js não disponível. Recarregue a página.</p>";
+    }
   }
 
   /**
@@ -914,9 +1182,9 @@
     const revenues = [];
     const orders = [];
 
-    // Últimos 6 meses
+    // Últimos 12 meses
     const now = new Date();
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const year = date.getFullYear().toString();
       const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -969,161 +1237,6 @@
         },
       },
     });
-  }
-
-  /**
-   * Exibe modal de diagnóstico com scroll
-   */
-  function showDiagnosticModal(d) {
-    // Remove modal existente
-    const existingModal = document.getElementById("diagnosticModal");
-    if (existingModal) existingModal.remove();
-
-    const modal = document.createElement("div");
-    modal.id = "diagnosticModal";
-    modal.style.position = "fixed";
-    modal.style.top = "0";
-    modal.style.left = "0";
-    modal.style.width = "100%";
-    modal.style.height = "100%";
-    modal.style.backgroundColor = "rgba(0,0,0,0.7)";
-    modal.style.display = "flex";
-    modal.style.justifyContent = "center";
-    modal.style.alignItems = "center";
-    modal.style.zIndex = "9999";
-
-    const modalContent = document.createElement("div");
-    modalContent.style.backgroundColor = "#1a1a2e";
-    modalContent.style.color = "#e0e0e0";
-    modalContent.style.padding = "20px";
-    modalContent.style.borderRadius = "8px";
-    modalContent.style.width = "90%";
-    modalContent.style.maxWidth = "900px";
-    modalContent.style.maxHeight = "85vh";
-    modalContent.style.overflow = "auto";
-    modalContent.style.fontFamily = "monospace";
-    modalContent.style.fontSize = "13px";
-
-    // Cabeçalho
-    const header = document.createElement("div");
-    header.style.display = "flex";
-    header.style.justifyContent = "space-between";
-    header.style.alignItems = "center";
-    header.style.marginBottom = "20px";
-    header.style.borderBottom = "1px solid #444";
-    header.style.paddingBottom = "10px";
-
-    const title = document.createElement("h3");
-    title.textContent = "🔍 Diagnóstico Completo - CIROD";
-    title.style.margin = "0";
-    title.style.color = "#4ade80";
-    header.appendChild(title);
-
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = "✕";
-    closeBtn.style.fontSize = "20px";
-    closeBtn.style.border = "none";
-    closeBtn.style.background = "none";
-    closeBtn.style.color = "#e0e0e0";
-    closeBtn.style.cursor = "pointer";
-    closeBtn.addEventListener("click", () => modal.remove());
-    header.appendChild(closeBtn);
-    modalContent.appendChild(header);
-
-    // Conteúdo
-    const content = document.createElement("div");
-
-    // Seção: Resumo
-    content.appendChild(createSection("📊 RESUMO", `
-Dentistas: ${d.totalDentists} total | ${d.dentistsWithKPIs} com KPIs | ${d.dentistsWithoutCro || 0} sem CRO
-Requisições: ${d.totalRequests} total
-IDs únicos de dentistas nas requisições: ${(d.uniqueRequestDentistIDs || []).length}
-    `));
-
-    // Seção: Unidades Mapeadas
-    const unidadesMapeadas = typeof CIROD_UNITS !== 'undefined'
-      ? CIROD_UNITS.filter(u => u.enabled !== false && u.id !== 0).map(u => `${u.name} (ID: ${u.id})`).join('\n')
-      : 'N/A';
-    content.appendChild(createSection("🏢 UNIDADES MAPEADAS", unidadesMapeadas));
-
-    // Seção: Requisições por Unidade (clinic_id)
-    const clinicCounts = {};
-    if (d.allRequests) {
-      d.allRequests.forEach(r => {
-        const cid = r.clinic_id || 'null';
-        clinicCounts[cid] = (clinicCounts[cid] || 0) + 1;
-      });
-    }
-    const clinicSummary = Object.entries(clinicCounts)
-      .sort((a, b) => b[1] - a[1])
-      .map(([cid, count]) => {
-        const unit = typeof CIROD_UNITS !== 'undefined' ? CIROD_UNITS.find(u => u.id === parseInt(cid)) : null;
-        const unitName = unit ? `✓ ${unit.name}` : `✗ NÃO MAPEADO`;
-        return `clinic_id=${cid}: ${count} requisições → ${unitName}`;
-      }).join('\n') || 'Nenhuma requisição encontrada';
-    content.appendChild(createSection("🏥 REQUISIÇÕES POR UNIDADE (clinic_id)", clinicSummary));
-
-    // Seção: Requisições por Mês
-    const monthSummary = Object.entries(d.requestsByMonth || {})
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .map(([month, count]) => `${month}: ${count} requisições`)
-      .join('\n') || 'Nenhuma';
-    content.appendChild(createSection("📅 REQUISIÇÕES POR MÊS", monthSummary));
-
-    // Seção: Todas as Requisições
-    const allReqList = (d.allRequests || [])
-      .map(r => {
-        const unit = typeof CIROD_UNITS !== 'undefined' ? CIROD_UNITS.find(u => u.id === r.clinic_id) : null;
-        const mappedStatus = unit ? `✓ ${unit.name}` : `✗ NÃO MAPEADO`;
-        const dentistInfo = r.dentist_cro ? `CRO:${r.dentist_cro}` : `ID:${r.dentist_id || 'N/A'} (sem CRO)`;
-        return `ReqID:${r.id} | ${r.date || 'sem data'} | ${dentistInfo} | ${r.dentist_name || ''} | R$${r.total_value || 0} | clinic_id:${r.clinic_id} | ${mappedStatus}`;
-      }).join('\n') || 'Nenhuma requisição';
-    content.appendChild(createSection(`📋 TODAS AS REQUISIÇÕES (${d.totalRequests || 0})`, allReqList));
-
-    // Seção: CROs de Dentistas
-    const crosList = (d.dentistCROs || []).join(', ') || 'Nenhum';
-    content.appendChild(createSection("👨‍⚕️ CROs DOS DENTISTAS CADASTRADOS", crosList));
-
-    // Seção: CROs Órfãos
-    const orphansList = (d.orphanCROs || []).join(', ') || 'Nenhum (todos têm dentista cadastrado)';
-    content.appendChild(createSection("⚠️ CROs ÓRFÃOS (requisições sem dentista)", orphansList));
-
-    modalContent.appendChild(content);
-    modal.appendChild(modalContent);
-    document.body.appendChild(modal);
-
-    // Fechar ao clicar fora
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) modal.remove();
-    });
-
-    // Função auxiliar para criar seções
-    function createSection(title, content) {
-      const section = document.createElement("div");
-      section.style.marginBottom = "20px";
-
-      const sectionTitle = document.createElement("div");
-      sectionTitle.textContent = title;
-      sectionTitle.style.color = "#60a5fa";
-      sectionTitle.style.fontWeight = "bold";
-      sectionTitle.style.marginBottom = "8px";
-      sectionTitle.style.fontSize = "14px";
-      section.appendChild(sectionTitle);
-
-      const sectionContent = document.createElement("pre");
-      sectionContent.textContent = content;
-      sectionContent.style.margin = "0";
-      sectionContent.style.padding = "10px";
-      sectionContent.style.backgroundColor = "#0f0f1a";
-      sectionContent.style.borderRadius = "4px";
-      sectionContent.style.whiteSpace = "pre-wrap";
-      sectionContent.style.wordBreak = "break-word";
-      sectionContent.style.maxHeight = "200px";
-      sectionContent.style.overflow = "auto";
-      section.appendChild(sectionContent);
-
-      return section;
-    }
   }
 
   // ========== FUNÇÕES AUXILIARES ==========
@@ -1260,18 +1373,35 @@ IDs únicos de dentistas nas requisições: ${(d.uniqueRequestDentistIDs || []).
 
   // ========== FUNÇÕES DE VISIBILIDADE ==========
 
+  // IDs de todos os módulos de controle CIROD
+  const CIROD_CONTROL_MODULES = [
+    "dentistProductivityModule",
+    "partnershipHealthModule"
+  ];
+
+  /**
+   * Remove todos os módulos de controle CIROD
+   * Chamado antes de abrir um novo módulo para evitar sobreposição
+   */
+  window.clearAllCIRODModules = function () {
+    CIROD_CONTROL_MODULES.forEach(id => {
+      const module = document.getElementById(id);
+      if (module) module.remove();
+    });
+  };
+
   /**
    * Esconde o conteúdo principal do Cfaz
    * Chamado antes de exibir um módulo de controle
    */
   window.hideMainContent = function () {
+    // Primeiro, limpar todos os módulos de controle existentes
+    window.clearAllCIRODModules();
+
     const mainContent = document.querySelector("#content > div");
     if (!mainContent) return;
     Array.from(mainContent.children).forEach((child) => {
-      // Não esconder o módulo de produtividade
-      if (child.id !== "dentistProductivityModule") {
-        child.style.display = "none";
-      }
+      child.style.display = "none";
     });
   };
 
@@ -1280,16 +1410,14 @@ IDs únicos de dentistas nas requisições: ${(d.uniqueRequestDentistIDs || []).
    * Chamado ao fechar um módulo de controle
    */
   window.showMainContent = function () {
+    // Limpar todos os módulos de controle
+    window.clearAllCIRODModules();
+
     const mainContent = document.querySelector("#content > div");
     if (!mainContent) return;
     Array.from(mainContent.children).forEach((child) => {
       child.style.display = "";
     });
-    // Remove o módulo de produtividade se existir
-    const moduleContainer = document.getElementById("dentistProductivityModule");
-    if (moduleContainer) {
-      moduleContainer.remove();
-    }
   };
 
   // ========== INICIALIZAÇÃO ==========

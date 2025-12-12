@@ -378,8 +378,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'recalculateAllKPIs':
           result = await handleRecalculateAllKPIs();
           break;
+        case 'getKPIConfig':
+          result = await handleGetKPIConfig();
+          break;
+        case 'setKPIConfig':
+          result = await handleSetKPIConfig(message);
+          break;
+        case 'getHealthConfig':
+          result = await handleGetHealthConfig();
+          break;
+        case 'setHealthConfig':
+          result = await handleSetHealthConfig(message);
+          break;
         case 'diagnosticKPIs':
           result = await handleDiagnosticKPIs();
+          break;
+        case 'queryDentistRequestDates':
+          result = await handleQueryDentistRequestDates(message);
           break;
         default:
           result = { status: 'error', message: `Comando desconhecido: ${message.command}` };
@@ -1078,6 +1093,261 @@ function createEmptyMonthKPIs() {
   }
 
   return emptyKPIs;
+}
+
+/**
+ * GET - Buscar configuração de KPIs
+ * Retorna a data da última recalculação e outras configurações
+ */
+async function handleGetKPIConfig() {
+  console.log('[CIROD] Buscando configuração de KPIs...');
+
+  try {
+    const params = {
+      TableName: AWS_CONFIG.tables.dentists,
+      Key: {
+        'dentist_id': { S: 'kpi_config' }
+      }
+    };
+
+    const result = await dynamoDBOperation('GetItem', params);
+
+    if (result.Item) {
+      const config = fromDynamoDB(result.Item);
+      console.log('[CIROD] Configuração de KPIs encontrada:', config);
+      return { status: 'success', data: config };
+    } else {
+      console.log('[CIROD] Configuração de KPIs não encontrada');
+      return { status: 'not_found', message: 'Configuração não encontrada' };
+    }
+  } catch (error) {
+    console.error('[CIROD] Erro ao buscar configuração de KPIs:', error);
+    return { status: 'error', message: error.message };
+  }
+}
+
+/**
+ * SET - Salvar configuração de KPIs
+ * Salva a data da última recalculação e outras configurações
+ */
+async function handleSetKPIConfig(message) {
+  const { data } = message;
+  console.log('[CIROD] Salvando configuração de KPIs:', data);
+
+  if (!data) {
+    return { status: 'error', message: 'data é obrigatório' };
+  }
+
+  try {
+    // Buscar configuração existente para mesclar
+    const existingParams = {
+      TableName: AWS_CONFIG.tables.dentists,
+      Key: {
+        'dentist_id': { S: 'kpi_config' }
+      }
+    };
+
+    let existingConfig = {};
+    try {
+      const existingResult = await dynamoDBOperation('GetItem', existingParams);
+      if (existingResult.Item) {
+        existingConfig = fromDynamoDB(existingResult.Item);
+      }
+    } catch (e) {
+      console.log('[CIROD] Nenhuma configuração existente, criando nova');
+    }
+
+    // Mesclar com novos dados
+    const configData = {
+      ...existingConfig,
+      ...data,
+      dentist_id: 'kpi_config',
+      config_type: 'kpi_settings',
+      updatedAt: new Date().toISOString()
+    };
+
+    // Converter para formato DynamoDB
+    const item = {};
+    for (const [key, value] of Object.entries(configData)) {
+      if (value !== undefined) {
+        item[key] = toDynamoDB(value);
+      }
+    }
+
+    await dynamoDBOperation('PutItem', {
+      TableName: AWS_CONFIG.tables.dentists,
+      Item: item
+    });
+
+    console.log('[CIROD] Configuração de KPIs salva com sucesso');
+    return { status: 'success', message: 'Configuração salva com sucesso', data: configData };
+
+  } catch (error) {
+    console.error('[CIROD] Erro ao salvar configuração de KPIs:', error);
+    return { status: 'error', message: error.message };
+  }
+}
+
+/**
+ * GET - Buscar configuração de Saúde das Parcerias (cache diário)
+ * Retorna a data da última análise e os dados cacheados
+ */
+async function handleGetHealthConfig() {
+  console.log('[CIROD] Buscando configuração de Saúde das Parcerias...');
+
+  try {
+    const params = {
+      TableName: AWS_CONFIG.tables.dentists,
+      Key: {
+        'dentist_id': { S: 'health_config' }
+      }
+    };
+
+    const result = await dynamoDBOperation('GetItem', params);
+
+    if (result.Item) {
+      const config = fromDynamoDB(result.Item);
+      console.log('[CIROD] Configuração de Saúde encontrada, dados:', config.healthData?.length || 0, 'dentistas');
+      return { status: 'success', data: config };
+    } else {
+      console.log('[CIROD] Configuração de Saúde não encontrada');
+      return { status: 'not_found', message: 'Configuração não encontrada' };
+    }
+  } catch (error) {
+    console.error('[CIROD] Erro ao buscar configuração de Saúde:', error);
+    return { status: 'error', message: error.message };
+  }
+}
+
+/**
+ * SET - Salvar configuração de Saúde das Parcerias (cache diário)
+ * Salva a data da última análise e os dados cacheados
+ */
+async function handleSetHealthConfig(message) {
+  const { data } = message;
+  console.log('[CIROD] Salvando configuração de Saúde das Parcerias...');
+
+  if (!data) {
+    return { status: 'error', message: 'data é obrigatório' };
+  }
+
+  try {
+    // Criar objeto de configuração
+    const configData = {
+      dentist_id: 'health_config',
+      config_type: 'health_settings',
+      lastHealthCalculation: data.lastHealthCalculation,
+      lastHealthCalculationTime: data.lastHealthCalculationTime,
+      cacheYear: data.cacheYear,
+      healthData: data.healthData || [],
+      updatedAt: new Date().toISOString()
+    };
+
+    // Converter para formato DynamoDB
+    const item = {};
+    for (const [key, value] of Object.entries(configData)) {
+      if (value !== undefined) {
+        item[key] = toDynamoDB(value);
+      }
+    }
+
+    await dynamoDBOperation('PutItem', {
+      TableName: AWS_CONFIG.tables.dentists,
+      Item: item
+    });
+
+    console.log('[CIROD] Configuração de Saúde salva com sucesso:', configData.healthData?.length || 0, 'dentistas cacheados');
+    return { status: 'success', message: 'Configuração salva com sucesso' };
+
+  } catch (error) {
+    console.error('[CIROD] Erro ao salvar configuração de Saúde:', error);
+    return { status: 'error', message: error.message };
+  }
+}
+
+/**
+ * Query datas de requisições de um dentista em um período
+ * Usado pelo módulo Saúde das Parcerias para análise de frequência
+ * Busca por dentist_id (principal) ou dentist_cro (fallback)
+ */
+async function handleQueryDentistRequestDates(message) {
+  const { dentistId, dentistCro, since, until } = message;
+  console.log('[CIROD] queryDentistRequestDates:', { dentistId, dentistCro, since, until });
+
+  if (!dentistId && !dentistCro) {
+    return { status: 'error', message: 'dentistId ou dentistCro é obrigatório' };
+  }
+
+  try {
+    // Buscar todas as requisições
+    const result = await dynamoDBOperation('Scan', {
+      TableName: AWS_CONFIG.tables.requests
+    });
+
+    const requests = (result.Items || []).map(item => fromDynamoDB(item));
+    console.log(`[CIROD] Total de requisições encontradas: ${requests.length}`);
+
+    // Filtrar por dentista (ID ou CRO)
+    const dentistRequests = requests.filter(req => {
+      const reqDentistId = req.dentist?.dentist_id;
+      const reqDentistCro = req.dentist?.dentist_cro;
+
+      // Match por ID (principal)
+      if (dentistId && reqDentistId && String(reqDentistId) === String(dentistId)) {
+        return true;
+      }
+      // Match por CRO (fallback)
+      if (dentistCro && reqDentistCro && reqDentistCro === dentistCro) {
+        return true;
+      }
+      return false;
+    });
+
+    console.log(`[CIROD] Requisições do dentista ${dentistId || dentistCro}: ${dentistRequests.length}`);
+
+    // Extrair datas e filtrar pelo período
+    const allDates = dentistRequests
+      .map(req => {
+        let dt = null;
+
+        // Tentar creation_date (DD/MM/YYYY)
+        if (typeof req.creation_date === 'string' && req.creation_date.includes('/')) {
+          const [d, m, y] = req.creation_date.split('/').map(Number);
+          dt = new Date(y, m - 1, d);
+        }
+
+        // Fallback para creation_date_inv (YYYY-MM-DD)
+        if ((!dt || isNaN(dt.getTime())) && req.creation_date_inv) {
+          dt = new Date(req.creation_date_inv);
+        }
+
+        // Fallback para request_date (ISO)
+        if ((!dt || isNaN(dt.getTime())) && typeof req.request_date === 'string') {
+          dt = new Date(req.request_date);
+        }
+
+        return dt && !isNaN(dt.getTime()) ? dt : null;
+      })
+      .filter(d => d instanceof Date)
+      .filter(d => {
+        // Filtrar pelo período
+        const s = new Date(since);
+        s.setHours(0, 0, 0, 0);
+        const u = new Date(until);
+        u.setHours(23, 59, 59, 999);
+        return d >= s && d <= u;
+      })
+      .sort((a, b) => a - b)
+      .map(d => d.toISOString());
+
+    console.log(`[CIROD] Datas filtradas no período: ${allDates.length}`);
+
+    return { status: 'success', data: allDates };
+
+  } catch (error) {
+    console.error('[CIROD] Erro em queryDentistRequestDates:', error);
+    return { status: 'error', message: error.message };
+  }
 }
 
 // Inicializar AWS ao carregar o service worker

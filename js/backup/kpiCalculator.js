@@ -15,17 +15,16 @@
 const kpiProcessedRequests = new CacheWithTTL(10 * 60 * 1000, 60 * 1000);
 
 /**
- * Atualiza os KPIs do dentista após salvar uma requisição
+ * Atualiza os KPIs do dentista após salvar uma requisição.
+ * Usa a função centralizada CIROD_ensureDentistExists para garantir que o dentista existe.
+ *
  * @param {Object} requestData - Dados da requisição salva
  */
 async function updateDentistKPIs(requestData) {
-  // Tratar string vazia como null para CRO
-  const dentistCro = requestData?.dentist?.dentist_cro || null;
   const dentistId = requestData?.dentist?.dentist_id;
 
-  // Verificar se temos pelo menos um identificador válido (CRO ou ID)
-  if (!requestData || (!dentistCro && !dentistId)) {
-    console.log('[CIROD KPI] Requisição sem CRO e sem ID do dentista, ignorando cálculo de KPIs');
+  if (!requestData || !dentistId) {
+    console.log('[CIROD KPI] Requisição sem ID do dentista, ignorando cálculo de KPIs');
     return;
   }
 
@@ -56,59 +55,17 @@ async function updateDentistKPIs(requestData) {
     return;
   }
 
-  // Determinar identificador para log
-  const identifier = dentistCro || `ID:${dentistId}`;
+  const identifier = requestData.dentist?.dentist_cro || `ID:${dentistId}`;
   console.log(`[CIROD KPI] Atualizando KPIs para dentista ${identifier}, Unidade: ${clinicId}, Valor: R$${totalValue}`);
 
   try {
-    // Buscar dentista pelo CRO ou pelo ID
-    let dentist = null;
-    if (dentistCro) {
-      dentist = await findDentistByCro(dentistCro);
-    }
-    if (!dentist && dentistId) {
-      console.log(`[CIROD KPI] Dentista não encontrado por CRO, tentando por ID: ${dentistId}`);
-      dentist = await findDentistById(dentistId);
-    }
+    // Usar função centralizada para garantir que o dentista existe
+    // Isso evita duplicação de lógica e race conditions
+    const dentist = await window.CIROD_ensureDentistExists(requestData.dentist);
 
     if (!dentist) {
-      // Dentista não existe - criar automaticamente usando dados do request
-      console.log(`[CIROD KPI] Dentista ${identifier} não encontrado, criando automaticamente...`);
-
-      const dentistData = requestData.dentist;
-      const newDentist = {
-        dentist_id: String(dentistId),
-        dentist_name: dentistData?.dentist_name || "Nome não informado",
-        dentist_cro: dentistCro || null,
-        dentist_email: dentistData?.dentist_email || [],
-        commercial_phone: dentistData?.commercial_phone || null,
-        mobile_phone: dentistData?.mobile_phone || null,
-        home_phone: dentistData?.home_phone || null,
-        comment: dentistData?.comment || null,
-        dental_clinics: dentistData?.dental_clinics || [],
-        actual_partnership_status: "Parceria em teste",
-        KPIs: {
-          expectedMonthlyRevenue: 0,
-          expectedMonthlyQtd: 0,
-          periodKPIs: {}
-        },
-        created_at: new Date().toISOString(),
-        auto_created: true
-      };
-
-      try {
-        await sendServiceMessage({
-          command: "put",
-          collection: "dentists",
-          docId: String(dentistId),
-          data: newDentist
-        });
-        console.log(`[CIROD KPI] Dentista ${newDentist.dentist_name} criado com sucesso`);
-        dentist = newDentist;
-      } catch (createError) {
-        console.error(`[CIROD KPI] Erro ao criar dentista: ${createError.message}`);
-        return;
-      }
+      console.log(`[CIROD KPI] Não foi possível obter/criar dentista ${identifier}, ignorando KPIs`);
+      return;
     }
 
     // Obter KPIs existentes ou criar estrutura
@@ -231,7 +188,7 @@ function recalculateExpectations(kpis) {
 
 /**
  * Busca dentista pelo CRO no DynamoDB
- * Usa sendServiceMessage do awsConfig.js para comunicação centralizada
+ * Usado apenas para recálculo manual de KPIs
  */
 async function findDentistByCro(cro) {
   if (!cro) return null;
@@ -245,48 +202,15 @@ async function findDentistByCro(cro) {
       ]
     });
 
-    // Se a operação foi cancelada por navegação, retornar null
     if (response.status === 'cancelled') {
       return null;
     }
 
-    // Retornar o primeiro dentista encontrado (CRO deve ser único)
     const dentists = response.data || [];
     return dentists.length > 0 ? dentists[0] : null;
   } catch (error) {
     console.error('[CIROD KPI] Erro ao buscar dentista por CRO:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Busca dentista pelo ID no DynamoDB
- * Usado como fallback quando o CRO não está disponível
- */
-async function findDentistById(dentistId) {
-  if (!dentistId) return null;
-
-  try {
-    const response = await sendServiceMessage({
-      command: 'get',
-      collection: 'dentists',
-      docId: String(dentistId)
-    });
-
-    // Se a operação foi cancelada por navegação, retornar null
-    if (response.status === 'cancelled') {
-      return null;
-    }
-
-    // Se não encontrou, retornar null (não é erro)
-    if (response.status === 'not_found') {
-      return null;
-    }
-
-    return response.data || null;
-  } catch (error) {
-    console.error('[CIROD KPI] Erro ao buscar dentista por ID:', error.message);
-    throw error;
+    return null;
   }
 }
 

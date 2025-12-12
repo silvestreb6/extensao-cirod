@@ -13,8 +13,12 @@ const ENABLE_KPI_UPDATE = true;
 // Flag para controlar se dentistas devem ser criados automaticamente
 const ENABLE_AUTO_CREATE_DENTIST = true;
 
-// Cache de dentistas já verificados/criados nesta sessão (TTL de 10 minutos)
-const dentistCheckCache = new CacheWithTTL(10 * 60 * 1000, 60 * 1000);
+// Cache GLOBAL de dentistas já verificados/criados nesta sessão (TTL de 10 minutos)
+// Compartilhado entre requestBackup.js e kpiCalculator.js via window
+if (!window.CIROD_DentistCache) {
+  window.CIROD_DentistCache = new CacheWithTTL(10 * 60 * 1000, 60 * 1000);
+}
+const dentistCheckCache = window.CIROD_DentistCache;
 
 // ========== INICIALIZAÇÃO ==========
 // Cfaz é um SPA que usa Turbo - usar apenas turbo:load
@@ -71,22 +75,26 @@ function initializeBackup() {
 }
 
 /**
- * Verifica se o dentista existe no DynamoDB e cria se não existir
+ * Verifica se o dentista existe no DynamoDB e cria se não existir.
+ * Esta é a função CENTRALIZADA para garantir existência de dentistas.
+ * Exposta globalmente via window.CIROD_ensureDentistExists para uso em outros módulos.
+ *
  * @param {Object} dentistData - Dados do dentista extraídos do request
- * @returns {Promise<boolean>} - true se o dentista existe ou foi criado com sucesso
+ * @returns {Promise<Object|null>} - Dados do dentista se existe/criado, null se falhou
  */
 async function ensureDentistExists(dentistData) {
   const dentistId = dentistData?.dentist_id;
   if (!dentistId) {
     console.log("[CIROD] ensureDentistExists: dentist_id não disponível");
-    return false;
+    return null;
   }
 
   // Verificar cache para evitar verificações repetidas
   const cacheKey = `dentist_${dentistId}`;
-  if (dentistCheckCache.has(cacheKey)) {
+  const cached = dentistCheckCache.get(cacheKey);
+  if (cached) {
     console.log(`[CIROD] Dentista ${dentistId} já verificado nesta sessão (cache)`);
-    return true;
+    return cached; // Retorna os dados do dentista do cache
   }
 
   try {
@@ -99,19 +107,17 @@ async function ensureDentistExists(dentistData) {
 
     // Se a operação foi cancelada por navegação, retornar
     if (getResponse.status === 'cancelled') {
-      return false;
+      return null;
     }
 
-    // Se o dentista já existe, marcar no cache e retornar
+    // Se o dentista já existe, marcar no cache e retornar os dados
     if (getResponse.status === 'success' && getResponse.data) {
       console.log(`[CIROD] Dentista ${dentistId} já existe no DynamoDB`);
-      dentistCheckCache.set(cacheKey, true);
-      return true;
+      dentistCheckCache.set(cacheKey, getResponse.data);
+      return getResponse.data;
     }
 
-    // Se status é 'not_found', prosseguir para criar o dentista
-
-    // Dentista não existe - criar novo registro
+    // Dentista não existe (status 'not_found') - criar novo registro
     console.log(`[CIROD] Dentista ${dentistId} não encontrado, criando novo registro...`);
 
     const newDentist = {
@@ -124,14 +130,14 @@ async function ensureDentistExists(dentistData) {
       home_phone: dentistData.home_phone || null,
       comment: dentistData.comment || null,
       dental_clinics: dentistData.dental_clinics || [],
-      actual_partnership_status: "Parceria em teste", // Status inicial padrão
+      actual_partnership_status: "Parceria em teste",
       KPIs: {
         expectedMonthlyRevenue: 0,
         expectedMonthlyQtd: 0,
         periodKPIs: {}
       },
       created_at: new Date().toISOString(),
-      auto_created: true // Flag para identificar dentistas criados automaticamente
+      auto_created: true
     };
 
     const putResponse = await sendServiceMessage({
@@ -142,18 +148,21 @@ async function ensureDentistExists(dentistData) {
     });
 
     if (putResponse.status === 'cancelled') {
-      return false;
+      return null;
     }
 
-    console.log(`[CIROD] Dentista ${dentistId} (${newDentist.dentist_name}) criado com sucesso no DynamoDB`);
-    dentistCheckCache.set(cacheKey, true);
-    return true;
+    console.log(`[CIROD] Dentista ${dentistId} (${newDentist.dentist_name}) criado com sucesso`);
+    dentistCheckCache.set(cacheKey, newDentist);
+    return newDentist;
 
   } catch (error) {
     console.error(`[CIROD] Erro ao verificar/criar dentista ${dentistId}:`, error.message);
-    return false;
+    return null;
   }
 }
+
+// Expor globalmente para uso em kpiCalculator.js
+window.CIROD_ensureDentistExists = ensureDentistExists;
 
 function getFileReference(downloadUrl) {
   if (!downloadUrl) return null;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Assistente CIROD",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Extensão que integra funcionalidades avançadas e automação para otimizar processos no sistema CfazMax para uso exclusivo da CIROD",
   "author": "CIROD Radiologia",
   "icons": {
@@ -24,11 +24,14 @@
       "js": [
         "utils/logger.js",
         "utils/displayMessage.js",
+        "utils/chart-min.js",
+        "utils/chart-minPlugIn.js",
         "aws/awsConfig.js",
         "js/backup/kpiCalculator.js",
         "js/backup/requestBackup.js",
         "js/backup/dentistBackup.js",
-        "js/controles/produtividadeDentistas.js"
+        "js/controles/produtividadeDentistas.js",
+        "js/controles/saudeParceriasModule.js"
       ],
       "run_at": "document_idle"
     }
