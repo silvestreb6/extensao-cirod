@@ -1,0 +1,226 @@
+/**
+ * controles.css - Assistente CIROD
+ * Estilos para as páginas de controle
+ * IMPORTANTE: Todos os estilos são escopados para não afetar o resto da página
+ */
+
+/* ========== Reset e Base ========== */
+#dentistProductivityModule,
+#partnershipHealthModule {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: #333;
+}
+
+/* ========== Botões (escopados) ========== */
+#dentistProductivityModule .cirod-btn,
+#partnershipHealthModule .cirod-btn {
+  display: inline-block;
+  font-weight: 400;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  border-radius: 4px;
+  transition: all 0.15s ease-in-out;
+}
+
+#dentistProductivityModule .cirod-btn:hover,
+#partnershipHealthModule .cirod-btn:hover {
+  opacity: 0.9;
+}
+
+/* ========== Abas de Produtividade ========== */
+#dentistProductivityModule .tab-btn {
+  background-color: #fff;
+  transition: all 0.2s ease;
+}
+
+#dentistProductivityModule .tab-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+#dentistProductivityModule .tab-btn.active {
+  transform: scale(1.02);
+}
+
+/* ========== Tabelas ========== */
+#dentistProductivityTable,
+#partnershipHealthModule table {
+  background-color: #fff;
+}
+
+#dentistProductivityTable th,
+#partnershipHealthModule table th {
+  white-space: nowrap;
+}
+
+#dentistProductivityTable td,
+#partnershipHealthModule table td {
+  vertical-align: middle;
+}
+
+#dentistProductivityTable tr:hover,
+#partnershipHealthModule table tr:hover {
+  background-color: #f0f7ff !important;
+}
+
+/* ========== Cards de Status ========== */
+#partnershipHealthModule .status-card {
+  user-select: none;
+}
+
+#partnershipHealthModule .status-card:active {
+  transform: scale(0.98) !important;
+}
+
+/* ========== Badges de Status ========== */
+#partnershipHealthModule .status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ========== Modais ========== */
+#dentistChartModal,
+#editStatusModal {
+  animation: cirodFadeIn 0.2s ease;
+}
+
+#dentistChartModal > div,
+#editStatusModal > div {
+  animation: cirodSlideIn 0.2s ease;
+}
+
+@keyframes cirodFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cirodSlideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ========== Form Controls (escopados) ========== */
+#editStatusModal .cirod-form-control {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #495057;
+  background-color: #fff;
+  background-clip: padding-box;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+#editStatusModal .cirod-form-control:focus {
+  color: #495057;
+  background-color: #fff;
+  border-color: #80bdff;
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+}
+
+/* ========== Spinner ========== */
+#dentistsProductivitySpinner,
+#partnershipSpinner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  font-size: 16px;
+  color: #666;
+}
+
+#dentistsProductivitySpinner::before,
+#partnershipSpinner::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border: 2px solid #ddd;
+  border-top-color: #333;
+  border-radius: 50%;
+  margin-right: 10px;
+  animation: cirodSpin 0.8s linear infinite;
+}
+
+@keyframes cirodSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ========== Links ========== */
+#dentistProductivityTable a {
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+#dentistProductivityTable a:hover {
+  opacity: 0.7;
+  text-decoration: underline;
+}
+
+/* ========== Responsividade ========== */
+@media (max-width: 768px) {
+  #productivityTabs {
+    justify-content: center;
+  }
+
+  #dentistProductivityModule .tab-btn {
+    font-size: 11px !important;
+    padding: 4px 8px !important;
+  }
+
+  #partnershipHealthModule .status-card {
+    min-width: 120px !important;
+    padding: 10px 15px !important;
+  }
+
+  #partnershipHealthModule .status-card div:last-child {
+    font-size: 22px !important;
+  }
+
+  #dentistProductivityTable,
+  #partnershipHealthModule table {
+    font-size: 12px;
+  }
+
+  #dentistProductivityTable th,
+  #dentistProductivityTable td,
+  #partnershipHealthModule table th,
+  #partnershipHealthModule table td {
+    padding: 6px !important;
+  }
+}
+
+/* ========== Print ========== */
+@media print {
+  #closeDentistProductivityButton {
+    display: none !important;
+  }
+
+  #dentistProductivityModule,
+  #partnershipHealthModule {
+    margin: 0 !important;
+  }
+}

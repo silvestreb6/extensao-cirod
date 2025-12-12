@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Assistente CIROD",
+  "version": "1.0.0",
+  "description": "Extensão que integra funcionalidades avançadas e automação para otimizar processos no sistema CfazMax para uso exclusivo da CIROD",
+  "author": "CIROD Radiologia",
+  "icons": {
+    "16": "images/logo_cirod.png",
+    "48": "images/logo_cirod.png",
+    "128": "images/logo_cirod.png"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://max.cfaz.net/*"
+  ],
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://max.cfaz.net/*"],
+      "js": [
+        "utils/logger.js",
+        "utils/displayMessage.js",
+        "aws/awsConfig.js",
+        "js/backup/kpiCalculator.js",
+        "js/backup/requestBackup.js",
+        "js/backup/dentistBackup.js",
+        "js/controles/produtividadeDentistas.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "utils/chart-min.js",
+        "utils/chart-minPlugIn.js",
+        "utils/displayMessage.js",
+        "css/*",
+        "images/*"
+      ],
+      "matches": ["https://max.cfaz.net/*"]
+    }
+  ]
+}
